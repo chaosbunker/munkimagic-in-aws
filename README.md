@@ -138,3 +138,6 @@ To reset the configuration:
 
 ~$: `make reset`
 
+---
+
+A few more details and the story behind this can be found [in this blog post](https://chaosbunker.com/projects/dev/munki-infrastructure-in-aws/).
