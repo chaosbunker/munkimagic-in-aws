@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  MunkiGitRepoName:
+    Type: "String"
+    Description: "Munki git repository name"
+    Default: master
+  CodeBuildScriptsBucketName:
+    Type: "String"
+    Description: "CodeBuild scripts bucket name"
+  MunkiRepoBucketName:
+    Type: "String"
+    Description: "Munki repository name"
+  MunkiLoggingBucketName:
+    Type: "String"
+    Description: "Munki logging bucket name"
+  MunkiStackName:
+    Type: "String"
+    Description: "Munki stack name"
+Resources:
+  MunkiScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${CodeBuildScriptsBucketName}
+      VersioningConfiguration:
+        Status: Enabled
+  MunkiBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${MunkiRepoBucketName}
+      LoggingConfiguration:
+        DestinationBucketName: !Ref 'LoggingBucket'
+        LogFilePrefix: munki-logs
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${MunkiLoggingBucketName}
+      AccessControl: LogDeliveryWrite
+  MunkiGitRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Sub ${MunkiGitRepoName}
+      RepositoryDescription: Munki git repository
+  LoggingBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: 
+        Ref: LoggingBucket
+      PolicyDocument: 
+        Statement: 
+          - 
+            Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal: 
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: 
+              !Sub |-
+                arn:aws:s3:::${MunkiLoggingBucketName}
+          - 
+            Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal: 
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource:
+              !Sub |-
+                  arn:aws:s3:::${MunkiLoggingBucketName}/AWSLogs/${AWS::AccountId}/*
+            Condition: 
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+  MunkiTrail: 
+    DependsOn: 
+      - LoggingBucketPolicy
+    Type: AWS::CloudTrail::Trail
+    Properties: 
+      TrailName: !Join ['-', [ !Ref 'MunkiStackName', 'CloudTrail']]
+      S3BucketName: !Ref MunkiLoggingBucketName
+      IsLogging: true
+

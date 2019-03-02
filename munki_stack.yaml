@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters: 
+  AWSRegion:
+    Type: "String"
+    Description: "Chosen AWS region"
+  MunkiGitRepoName:
+    Type: "String"
+    Description: "Munki git repository name"
+  RepositoryBranch:
+    Type: String
+    Default: master
+  CodeBuildScriptsBucketName:
+    Type: "String"
+    Description: "CodeBuild scripts bucket name"
+  MunkiRepoBucketName:
+    Type: "String"
+    Description: "Munki repository name"
+  MunkiStackName:
+    Type: "String"
+    Description: "Munki stack name"
+  CodeBuildScriptsArchiveBucketName:
+    Type: "String"
+    Description: "Compressed S3 file containing repo sync scripts"
+    Default: "codebuild_scripts.zip"
+Resources:
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['-', [ !Ref 'MunkiStackName', 'CodePipeline']]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+          Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+      Policies:
+        - 
+          PolicyName: "codecommit"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action:
+                    - "codecommit:UploadArchive"
+                    - "codecommit:GitPull"
+                    - "codecommit:BatchGet*"
+                    - "codecommit:Get*"
+                Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${MunkiGitRepoName}"
+        - 
+          PolicyName: "s3-artifacts-and-s3-scripts"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action:
+                  - "s3:ListBucket*"
+                  - "s3:GetBucketVersioning"
+                  - "s3:Get*"
+                  - "s3:PutObject"
+                  - "s3:ListMultipartUploadParts"
+                Resource:
+                  - !Sub "arn:aws:s3:::${CodeBuildScriptsBucketName}"
+                  - !Join ['', ['arn:aws:s3:::', !Ref 'ArtifactStoreBucket']]
+                  - !Sub "arn:aws:s3:::${CodeBuildScriptsBucketName}/*"
+                  - !Join ['', ['arn:aws:s3:::', !Ref 'ArtifactStoreBucket', /*]]
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      RoleName: !Join ['-', [ !Ref 'MunkiStackName', 'CodeBuild']]
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "codebuild.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies: 
+        - 
+          PolicyName: "logs"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+        - 
+          PolicyName: "s3-artifacts-and-s3-sync"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                Resource:
+                  - !Join ['', ['arn:aws:s3:::', !Ref 'ArtifactStoreBucket', /*]]
+                  - !Sub "arn:aws:s3:::${CodeBuildScriptsBucketName}/*"
+        - 
+          PolicyName: "s3-munki"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: "Allow"
+                Action: 
+                  - "s3:ListBucket*"
+                  - "s3:DeleteObject"
+                  - "s3:Get*"
+                  - "s3:PutObject"
+                  - "s3:ListMultipartUploadParts"
+                Resource:
+                  - !Sub "arn:aws:s3:::${MunkiRepoBucketName}"
+                  - !Sub "arn:aws:s3:::${MunkiRepoBucketName}/*"
+  MunkiAdminPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: "Policy for MunkiAdmin Users"
+      Path: "/"
+      ManagedPolicyName: !Join ['-', [ !Ref 'MunkiStackName', 'MunkiAdminAccess']]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: "Allow"
+            Action:
+              - "codecommit:GitPull"
+              - "codecommit:GitPush"
+              - "codecommit:GetRepository"
+            Resource:
+              - !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${MunkiGitRepoName}"
+          - 
+            Effect: "Allow"
+            Action: 
+              - "s3:ListBucket*"
+            Resource:
+              - !Join ['', ['arn:aws:s3:::', !Ref 'MunkiRepoBucketName']]
+          - 
+            Effect: "Allow"
+            Action:
+              - "s3:PutObject"
+              - "s3:ListMultipartUploadParts"
+            Resource:
+              - !Join ['', ['arn:aws:s3:::', !Ref 'MunkiRepoBucketName', /pkgs/*]]
+          - 
+            Effect: "Allow"
+            Action:
+              - "ec2:DescribeRegions"
+            Resource:
+              - "*"
+          - 
+            Effect: "Allow"
+            Action:
+              - "cloudformation:DescribeStacks"
+            Resource:
+              - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${MunkiStackName}/*"
+          - 
+            Effect: "Allow"
+            Action:
+              - "codepipeline:GetPipelineState"
+            Resource:
+              - !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${MunkiStackName}-CodePipeline"
+  MunkiClient:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Join ['-', [ !Ref 'MunkiStackName', 'MunkiClient']]
+      Policies:
+      - PolicyName: MunkiClientS3Access
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: s3:GetBucketLocation
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'MunkiRepoBucketName']]
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'MunkiRepoBucketName', /*]]
+  MunkiAdmin:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Join ['-', [ !Ref 'MunkiStackName', 'MunkiAdmin' ]]
+      ManagedPolicyArns:
+        - !Ref MunkiAdminPolicy
+  ArtifactStoreBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ['-', [!Ref 'MunkiStackName', artifacts]]
+      VersioningConfiguration:
+        Status: Enabled
+      AccessControl: BucketOwnerFullControl
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Join ['-', [ !Ref 'MunkiStackName', 'CodePipeline']]
+      RoleArn: !GetAtt [CodePipelineRole, Arn]
+      ArtifactStore:
+        Location:
+          Ref:
+            ArtifactStoreBucket
+        Type: S3
+      Stages:
+      - Name: Source
+        Actions:
+        - InputArtifacts: []
+          Name: MunkiGitRepoSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: 1
+            Provider: CodeCommit
+          OutputArtifacts:
+            - Name: MunkiGitRepoSourceArtifact
+          Configuration:
+            BranchName: !Ref RepositoryBranch
+            RepositoryName: !Ref MunkiGitRepoName
+          RunOrder: 1
+        - InputArtifacts: []
+          Name: CodeBuildScriptsSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: 1
+            Provider: S3
+          OutputArtifacts:
+            - Name: CodeBuildScriptsSourceArtifact
+          Configuration:
+            S3Bucket: !Ref CodeBuildScriptsBucketName
+            S3ObjectKey: !Sub ${CodeBuildScriptsArchiveBucketName}
+            PollForSourceChanges: false
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - InputArtifacts:
+            - Name: MunkiGitRepoSourceArtifact
+            - Name: CodeBuildScriptsSourceArtifact
+          Name: MunkiBuild
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: 1
+            Provider: CodeBuild
+          Configuration:
+            ProjectName: !Ref CodeBuild
+            PrimarySource: CodeBuildScriptsSourceArtifact
+          RunOrder: 1
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Join ['-', [ !Ref 'MunkiStackName', 'CodeBuild']]
+      Description: CodeBuild will sync our Munki repo to our S3 repo bucket and make catalogs in the bucket
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:2.7.12
+        EnvironmentVariables: 
+          - 
+            Name: AWSRegion
+            Value: !Ref AWSRegion
+          - 
+            Name: MunkiRepoBucketName
+            Value: !Ref MunkiRepoBucketName
+          - 
+            Name: bucket_name
+            Value: !Ref MunkiRepoBucketName
+          - 
+            Name: MunkiGitRepoName
+            Value: !Ref MunkiGitRepoName
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 60

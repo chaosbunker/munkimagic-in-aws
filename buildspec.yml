@@ -1,0 +1,11 @@
+version: 0.2
+
+phases:
+
+  install:
+    commands:
+      - pip install boto3 --user
+
+  build:
+    commands:
+      - ./sync_and_makecatalogs.sh

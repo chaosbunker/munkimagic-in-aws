@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters: 
+  MunkiStackName:
+    Type: "String"
+    Description: "Munki stack name"
+Resources:
+  User1:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Join ['-', [ !Ref 'MunkiStackName', 'someonesname' ]]
+      ManagedPolicyArns:
+          - !Sub "arn:aws:iam::${AWS::AccountId}:policy/${MunkiStackName}-MunkiAdminAccess"
+#  User2:
+#    Type: AWS::IAM::User
+#    Properties:
+#      UserName: !Join ['-', [ !Ref 'MunkiStackName', 'someoneelsesname' ]]
+#      ManagedPolicyArns:
+#          - !Sub "arn:aws:iam::${AWS::AccountId}:policy/${MunkiStackName}-MunkiAdminAccess"

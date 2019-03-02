@@ -1,0 +1,4 @@
+.DS_Store
+munki_admins.yaml
+munki.env
+munki.mobileconfig
